@@ -105,7 +105,8 @@ public class exercise2 {
 
         // emit result
         if (params.has("output")) {
-            sumTumblingEventTimeWindows.writeAsText(params.get("output"));
+            //sumTumblingEventTimeWindows.writeAsText(params.get("output"));
+            sumTumblingEventTimeWindows.writeAsCsv(params.get("output"));
         }
 
         // execute program
