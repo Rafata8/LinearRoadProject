@@ -76,9 +76,9 @@ public class exercise2 {
             public boolean filter(Tuple6<Integer, Integer, Integer, Integer, Integer, Integer> in) throws Exception {
                 boolean isInSegment=startSegment<=in.f5 && endSegment>=in.f5;
                 boolean isEastbound=in.f4.equals(0);
-                boolean hasSpeed=in.f2>speed;
+                //boolean hasSpeed=in.f2>speed;
 
-                return (isEastbound && isInSegment && hasSpeed);
+                return (isEastbound && isInSegment);
             }
         })
                 ;
@@ -94,11 +94,30 @@ public class exercise2 {
                             }
                         }
 
-                ).keyBy(3);
+                ).keyBy(1,3);
+
+        //calculamos los avgspeed de todos los vehiculos
+        SingleOutputStreamOperator<Tuple4<Integer, Integer, Integer,Integer>> sumTumblingAvgSpeed =
+                keyedStream.window(TumblingEventTimeWindows.of(Time.seconds((long) time))).apply(new AvgSpeed());
+
+        //filtramos los que sean mayores de la velocidad
+        SingleOutputStreamOperator<Tuple4<Integer, Integer, Integer,Integer>> sumTumblingAvgSpeedExceeds=sumTumblingAvgSpeed.filter(new FilterFunction<Tuple4<Integer, Integer, Integer,Integer>>() {
+            public boolean filter(Tuple4<Integer, Integer, Integer,Integer> in) throws Exception {
+
+                boolean hasSpeed=in.f2>speed;
+
+                return hasSpeed;
+            }
+        });
 
 
-        SingleOutputStreamOperator<Tuple4<Integer, Integer, Integer,String>> sumTumblingEventTimeWindows =
-                keyedStream.window(TumblingEventTimeWindows.of(Time.seconds((long) time))).apply(new SimpleSum());
+        //lo hacemos keyed por xway
+        KeyedStream<Tuple4<Integer, Integer, Integer,Integer>, Tuple> keyedAvgSpeed = sumTumblingAvgSpeedExceeds.keyBy(3);
+
+
+        //lo sacamos en lista
+        SingleOutputStreamOperator<Tuple4<Integer, Integer, Integer,String>> sol =
+                keyedAvgSpeed.window(TumblingEventTimeWindows.of(Time.seconds((long) time))).apply(new ConcatGreaterSpeed());
 
 
 
@@ -106,35 +125,67 @@ public class exercise2 {
         // emit result
         if (params.has("output")) {
             //sumTumblingEventTimeWindows.writeAsText(params.get("output"));
-            sumTumblingEventTimeWindows.writeAsCsv(params.get("output"));
+            sol.writeAsCsv(params.get("output"));
         }
 
         // execute program
         env.execute("exercise2");
     }
 
-    public static class SimpleSum implements WindowFunction<Tuple6<Integer, Integer, Integer, Integer, Integer, Integer>, Tuple4<Integer, Integer, Integer,String>, Tuple, TimeWindow> {
-        public void apply(Tuple tuple, TimeWindow timeWindow, Iterable<Tuple6<Integer, Integer, Integer, Integer, Integer, Integer>> input, Collector<Tuple4<Integer, Integer, Integer,String>> out) throws Exception {
-            Iterator<Tuple6<Integer, Integer, Integer, Integer, Integer, Integer>> iterator = input.iterator();
-            Tuple6<Integer, Integer, Integer, Integer, Integer, Integer> first = iterator.next();
+    public static class ConcatGreaterSpeed implements WindowFunction<Tuple4<Integer, Integer, Integer,Integer>, Tuple4<Integer, Integer, Integer,String>, Tuple, TimeWindow> {
+        public void apply(Tuple tuple, TimeWindow timeWindow, Iterable<Tuple4<Integer, Integer, Integer,Integer>> input, Collector<Tuple4<Integer, Integer, Integer,String>> out) throws Exception {
+            Iterator<Tuple4<Integer, Integer, Integer,Integer>> iterator = input.iterator();
+            Tuple4<Integer, Integer, Integer,Integer> first = iterator.next();
             Integer xway = 0;
             Integer ts = 0;
             Integer quantity=0;
             String vids="[ ";
             if(first!=null){
-                xway = first.f3;
-                ts = first.f0;
-                quantity=1;
-                vids+=String.valueOf(first.f1);
+                //if (first.f2>speed) {
+                    xway = first.f3;
+                    ts = first.f0;
+                    quantity = 1;
+                    vids += String.valueOf(first.f1);
+                //}
             }
             while(iterator.hasNext()){
-                Tuple6<Integer, Integer, Integer, Integer, Integer, Integer> next = iterator.next();
-                //ts = next.f0;
+                Tuple4<Integer, Integer, Integer,Integer> next = iterator.next();
+                if(next.f0<ts){
+                    ts = next.f0;
+                }
                 //xexit += next.f2;
                 quantity+=1;
                 vids+=" - "+String.valueOf(next.f1);
             }
             out.collect(new Tuple4<Integer, Integer, Integer,String>(ts, xway, quantity,vids+" ]"));
+        }
+    }
+
+    public static class AvgSpeed implements WindowFunction<Tuple6<Integer, Integer, Integer, Integer, Integer, Integer>, Tuple4<Integer, Integer, Integer,Integer>, Tuple, TimeWindow> {
+        public void apply(Tuple tuple, TimeWindow timeWindow, Iterable<Tuple6<Integer, Integer, Integer, Integer, Integer, Integer>> input, Collector<Tuple4<Integer, Integer, Integer,Integer>> out) throws Exception {
+            Iterator<Tuple6<Integer, Integer, Integer, Integer, Integer, Integer>> iterator = input.iterator();
+            Tuple6<Integer, Integer, Integer, Integer, Integer, Integer> first = iterator.next();
+            Integer ts = 0;
+            Integer vid=0;
+            Integer avgSpeed = 0;
+            Integer xway=0;
+            Integer quantity=0;
+
+
+            if (first != null) {
+                vid = first.f1;
+                ts = first.f0;
+                avgSpeed=first.f2;
+                xway=first.f3;
+                quantity=1;
+            }
+            while (iterator.hasNext()) {
+                Tuple6<Integer, Integer, Integer, Integer, Integer, Integer> next = iterator.next();
+                avgSpeed+=next.f2;
+                quantity += 1;
+            }
+            avgSpeed=avgSpeed/quantity;
+            out.collect(new Tuple4<Integer, Integer, Integer,Integer>(ts, vid, avgSpeed,xway));
         }
     }
 
